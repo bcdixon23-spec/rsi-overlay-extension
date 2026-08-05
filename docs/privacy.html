@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — RSI Overlay for TradingView</title>
+    <link rel="icon" href="icon.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <img src="icon.png" alt="RSI Overlay icon" />
+        <h1>Privacy Policy</h1>
+      </header>
+      <p class="tagline">RSI Overlay for TradingView — last updated 2026-08-05</p>
+
+      <h2>Summary</h2>
+      <p>This extension does not collect, transmit, or sell any personal data. It does not require an account or sign-in, and it does not access your TradingView account.</p>
+
+      <h2>What data is accessed</h2>
+      <p>To calculate RSI, the extension fetches public daily closing-price data for the symbol you configure, directly from Yahoo Finance's public chart endpoint (<code>query1.finance.yahoo.com</code>). This is price data only — no personal or account information is sent as part of that request.</p>
+
+      <h2>What data is stored</h2>
+      <p>The following is stored locally on your device, using Chrome's built-in extension storage (<code>chrome.storage.local</code>), and never leaves your browser:</p>
+      <ul>
+        <li>Your chosen symbol and oversold/overbought thresholds</li>
+        <li>Whether the overlay is enabled</li>
+        <li>The most recent RSI reading</li>
+        <li>Where you last dragged the overlay panel to on screen</li>
+      </ul>
+      <p>None of this data is transmitted to the developer or any third party. There is no backend server operated by this extension — the only network request it makes is the price-data fetch described above.</p>
+
+      <h2>Permissions this extension requests, and why</h2>
+      <ul>
+        <li><strong>storage</strong> — to save your settings locally, as described above</li>
+        <li><strong>alarms</strong> — to periodically re-check the RSI value in the background</li>
+        <li><strong>notifications</strong> — to alert you when RSI crosses your configured threshold</li>
+        <li><strong>Host access to query1.finance.yahoo.com</strong> — to fetch the price data used to calculate RSI</li>
+        <li><strong>Content script on tradingview.com</strong> — to display the overlay panel on the chart page; it does not read, modify, or transmit any content from the page itself</li>
+      </ul>
+
+      <h2>Third parties</h2>
+      <p>No data is shared with, sold to, or used by any third party. The only outbound request is the price-data fetch to Yahoo Finance, made directly from your browser.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>Any changes will be posted on this page.</p>
+
+      <h2>Contact</h2>
+      <p>Questions or concerns: open an issue at <a href="https://github.com/REPLACE_WITH_USERNAME/rsi-overlay-extension/issues">github.com/REPLACE_WITH_USERNAME/rsi-overlay-extension/issues</a>.</p>
+
+      <p><a href="index.html">&larr; Back</a></p>
+    </div>
+  </body>
+</html>
