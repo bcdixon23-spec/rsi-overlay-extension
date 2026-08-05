@@ -2,7 +2,7 @@
 
 A free Chrome extension that overlays a live Wilder RSI(14) reading on TradingView charts, with threshold alerts.
 
-Landing page / support / privacy policy: https://REPLACE_WITH_USERNAME.github.io/rsi-overlay-extension/
+Landing page / support / privacy policy: https://bcdixon23-spec.github.io/rsi-overlay-extension/
 
 ## Development
 
