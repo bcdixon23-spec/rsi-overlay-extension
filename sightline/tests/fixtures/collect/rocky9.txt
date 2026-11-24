@@ -1,0 +1,27 @@
+@@SL:os-release@@
+NAME="Rocky Linux"
+VERSION="9.3 (Blue Onyx)"
+ID="rocky"
+ID_LIKE="rhel centos fedora"
+VERSION_ID="9.3"
+PRETTY_NAME="Rocky Linux 9.3 (Blue Onyx)"
+@@SL:uname@@
+Linux 5.14.0-362.8.1.el9_3.x86_64 x86_64
+@@SL:uid@@
+1000
+@@SL:dpkg@@
+@@SL:rpm@@
+openssl	1	3.0.7	24.el9	openssl-3.0.7-24.el9.src.rpm	x86_64
+openssl-libs	1	3.0.7	24.el9	openssl-3.0.7-24.el9.src.rpm	x86_64
+bash	(none)	5.1.8	6.el9_1	bash-5.1.8-6.el9_1.src.rpm	x86_64
+gpg-pubkey	(none)	350d275d	6279464b	(none)	(none)
+@@SL:apk@@
+@@SL:sshd@@
+#source=config
+# comment
+PermitRootLogin no
+Match User backup
+  PasswordAuthentication yes
+@@SL:listening@@
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      812/sshd
+@@SL:end@@
