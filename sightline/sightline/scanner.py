@@ -15,6 +15,7 @@ from sightline.checks import CheckContext
 from sightline.collect.inventory import COLLECTOR_SCRIPT, Inventory, parse_collection
 from sightline.collect.runner import CollectionError, LocalRunner, SSHRunner
 from sightline.config import scans_path, vulndb_path
+from sightline.exploitintel import enrich as exploit_enrich
 from sightline.models import Finding, HostResult, ScanResult
 from sightline.netscan import DEFAULT_PORTS, fingerprint, scan_ports
 from sightline.risk import mark_exposure, prioritize
@@ -298,6 +299,8 @@ def run_scan(
             all_findings += findings
             result.hosts.append(o.host)
         enrich(db, all_findings)
+        kev_cves = set(db.kev_entries({c for f in all_findings for c in f.cves}))
+        exploit_enrich(all_findings, kev_cves)
         result.vulndb = db.stats()
         result.vulndb.pop("releases", None)
     finally:

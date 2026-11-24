@@ -278,3 +278,18 @@ def test_web_token_required():
     finally:
         httpd.shutdown()
         Handler.token, Handler.loopback_only = None, True
+
+
+def test_web_settings_and_help(web_server):
+    # settings GET returns defaults; POST updates them (CSRF header required)
+    status, body = _req(web_server, "GET", "/api/settings")
+    assert status == 200 and json.loads(body)["org_name"] == "Sightline"
+    status, _ = _req(web_server, "POST", "/api/settings", json.dumps({"org_name": "Acme", "accent": "teal"}),
+                     {"Content-Type": "application/json"})  # fmt: skip
+    assert status == 403  # no X-Sightline header -> CSRF blocked
+    status, body = _req(web_server, "POST", "/api/settings", json.dumps({"org_name": "Acme", "accent": "teal"}),
+                        {"Content-Type": "application/json", "X-Sightline": "1"})  # fmt: skip
+    assert status == 200 and json.loads(body)["org_name"] == "Acme"
+    assert json.loads(_req(web_server, "GET", "/api/settings")[1])["accent"] == "#0d9488"
+    help_data = json.loads(_req(web_server, "GET", "/api/help")[1])
+    assert "glossary" in help_data and "KEV" in help_data["glossary"]

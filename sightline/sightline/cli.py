@@ -27,8 +27,15 @@ def _progress(quiet: bool):
 def _write_reports(result, args) -> None:
     from sightline.report.export import to_csv, to_json
     from sightline.report.html import render_html
+    from sightline.settings import load as load_settings
 
-    for attr, render in (("html", render_html), ("json", to_json), ("csv", to_csv)):
+    settings = load_settings()
+    renderers = {
+        "html": lambda r: render_html(r, settings),
+        "json": to_json,
+        "csv": to_csv,
+    }
+    for attr, render in renderers.items():
         path = getattr(args, attr, None)
         if path:
             Path(path).write_text(render(result))
@@ -56,11 +63,17 @@ def cmd_scan(args) -> int:
     from sightline.scanner import ScanOptions, run_scan
     from sightline.targets import TargetError
 
+    from sightline.settings import load as load_settings
+
+    settings = load_settings()
     if not args.targets and not args.local:
         _err("give one or more targets (IP, CIDR, range, hostname, @file) or --local")
         return 1
+    # Fall back to saved personal defaults when a flag was not given.
+    ports_spec = args.ports if args.ports != "default" else settings.default_ports
+    ssh_user = args.ssh_user or settings.default_ssh_user or None
     try:
-        ports = parse_ports(args.ports)
+        ports = parse_ports(ports_spec)
     except ValueError as exc:
         _err(str(exc))
         return 1
@@ -71,12 +84,12 @@ def cmd_scan(args) -> int:
         network=not args.no_network,
         udp=not args.no_udp,
         local=args.local,
-        ssh=bool(args.ssh or args.ssh_user or args.ssh_key),
-        ssh_user=args.ssh_user,
+        ssh=bool(args.ssh or ssh_user or args.ssh_key),
+        ssh_user=ssh_user,
         ssh_key=args.ssh_key,
         ssh_port=args.ssh_port,
         ssh_options=args.ssh_option or [],
-        sudo=args.sudo,
+        sudo=args.sudo or settings.default_sudo,
         strict_host_keys=args.strict_host_keys,
         timeout=args.timeout,
         connect_timeout=args.connect_timeout,
@@ -250,6 +263,131 @@ def cmd_db(args) -> int:
     return 1
 
 
+def cmd_sniff(args) -> int:
+    from sightline.capture.run import run_live
+    from sightline.capture.sniffer import CaptureError, can_capture, capture_backend, list_interfaces
+    from sightline.report.console import render_capture
+
+    if args.list_interfaces:
+        print("Capture backend:", capture_backend())
+        for name in list_interfaces() or ["(none found)"]:
+            print(" ", name)
+        return 0
+    if not args.count and not args.seconds:
+        args.seconds = 30.0  # a sane default so 'sniff' always terminates
+    if not can_capture():
+        _err(
+            "live capture needs elevated privileges (sudo on Linux, Administrator on Windows). "
+            "You can also analyse a saved capture with: sightline pcap <file.pcap>"
+        )
+        # fall through and try anyway; the socket open gives the exact fix
+    try:
+        result = run_live(
+            interface=args.iface or "",
+            count=args.count,
+            seconds=args.seconds,
+            snaplen=args.snaplen,
+            filter_spec=args.filter,
+            write_pcap=args.write,
+            promiscuous=not args.no_promisc,
+            name=args.name or "",
+            progress=_progress(args.quiet),
+        )
+    except CaptureError as exc:
+        _err(str(exc))
+        return 1
+    except KeyboardInterrupt:
+        return 130
+    _save_capture(result, args)
+    if not args.quiet:
+        render_capture(result, verbose=args.verbose)
+    _write_reports(result, args)
+    return _fail_on(result, args.fail_on)
+
+
+def cmd_pcap(args) -> int:
+    from sightline.capture.pcap import PcapError
+    from sightline.capture.run import run_pcap
+    from sightline.report.console import render_capture
+
+    if not Path(args.file).is_file():
+        _err(f"no such file: {args.file}")
+        return 1
+    try:
+        result = run_pcap(args.file, filter_spec=args.filter, name=args.name or "", progress=_progress(args.quiet))
+    except PcapError as exc:
+        _err(str(exc))
+        return 1
+    _save_capture(result, args)
+    if not args.quiet:
+        render_capture(result, verbose=args.verbose)
+    _write_reports(result, args)
+    return _fail_on(result, args.fail_on)
+
+
+def _save_capture(result, args) -> None:
+    if getattr(args, "no_save", False):
+        return
+    from sightline.storage import ScanStore, apply_diff
+
+    store = ScanStore(scans_path())
+    try:
+        apply_diff(result, store.previous(result))
+        store.save(result)
+    finally:
+        store.close()
+
+
+def cmd_config(args) -> int:
+    from sightline.settings import ACCENT_PRESETS, THEMES, config_path, load, update
+
+    if args.config_cmd == "show" or args.config_cmd is None:
+        s = load()
+        print(f"Settings file: {config_path()}")
+        for key, value in s.to_dict().items():
+            print(f"  {key:16} = {value}")
+        print(f"\nAccent presets: {', '.join(ACCENT_PRESETS)}")
+        print(f"Themes: {', '.join(THEMES)}")
+        return 0
+    if args.config_cmd == "set":
+        changes = {k: getattr(args, k) for k in (
+            "org_name", "tagline", "accent", "theme", "analyst", "default_ports", "default_ssh_user"
+        )}  # fmt: skip
+        for flag in ("beginner_mode", "show_glossary", "emoji", "default_sudo"):
+            val = getattr(args, flag)
+            if val is not None:
+                changes[flag] = val == "on"
+        s = update(**{k: v for k, v in changes.items() if v is not None})
+        print("Saved. Reports and the dashboard will use:")
+        print(f"  organisation: {s.org_name}   accent: {s.accent}   theme: {s.theme}")
+        return 0
+    if args.config_cmd == "reset":
+        from sightline.settings import Settings, save
+
+        save(Settings())
+        print("Settings reset to defaults.")
+        return 0
+    return 1
+
+
+def cmd_explain(args) -> int:
+    from sightline.knowledge import GLOSSARY, PRIORITY_HELP, explain
+
+    if not args.term:
+        print("Security terms you can explain (sightline explain <term>):\n")
+        for name in list(GLOSSARY) + list(PRIORITY_HELP):
+            print(f"  {name}")
+        return 0
+    text = explain(" ".join(args.term))
+    if not text:
+        _err(f"no explanation for {' '.join(args.term)!r}; try 'sightline explain' for the list")
+        return 1
+    import textwrap
+
+    print(textwrap.fill(text, 88))
+    return 0
+
+
 def cmd_serve(args) -> int:
     from sightline.web.server import serve
 
@@ -353,6 +491,68 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--port", type=int, default=8077)
     w.add_argument("--token", help="access token (generated automatically when not on localhost)")
     w.set_defaults(func=cmd_serve)
+
+    sn = sub.add_parser("sniff", help="capture live network traffic and flag cleartext secrets",
+                        epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter,
+                        description="Passively watch traffic (like Wireshark) and report credentials sent in\n"
+                        "cleartext, plaintext protocols and a passive host inventory. Needs sudo/Administrator.\n\n"
+                        "Examples:\n"
+                        "  sudo sightline sniff --seconds 60\n"
+                        "  sudo sightline sniff --iface eth0 --filter 'port 80,21,23' --write capture.pcap\n"
+                        "  sightline sniff --list-interfaces")  # fmt: skip
+    sn.add_argument("--iface", help="interface to capture on (Linux) or local IP (Windows); default: auto")
+    sn.add_argument("--count", type=int, default=0, help="stop after N packets")
+    sn.add_argument("--seconds", type=float, default=0.0, help="stop after N seconds (default 30 if no limit set)")
+    sn.add_argument("--snaplen", type=int, default=65535, help="bytes to capture per packet")
+    sn.add_argument("--filter", help="simple filter, e.g. 'host 10.0.0.5 port 80,443 tcp'")
+    sn.add_argument("--write", metavar="PCAP", help="also save raw traffic to a .pcap (opens in Wireshark)")
+    sn.add_argument("--no-promisc", action="store_true", help="don't enable promiscuous mode")
+    sn.add_argument("--list-interfaces", action="store_true", help="list capture interfaces and exit")
+    sn.add_argument("--name")
+    sn.add_argument("--html", metavar="PATH")
+    sn.add_argument("--json", metavar="PATH")
+    sn.add_argument("--csv", metavar="PATH")
+    sn.add_argument("--fail-on", choices=list(PRIORITIES) + list(SEVERITIES[:4]))
+    sn.add_argument("--no-save", action="store_true")
+    sn.add_argument("-q", "--quiet", action="store_true")
+    sn.add_argument("-v", "--verbose", action="store_true")
+    sn.set_defaults(func=cmd_sniff)
+
+    pc = sub.add_parser("pcap", help="analyse a saved capture file (.pcap) - works everywhere, no privileges",
+                        epilog=EPILOG)
+    pc.add_argument("file", help="path to a .pcap capture (from Sightline, Wireshark or tcpdump)")
+    pc.add_argument("--filter", help="simple filter, e.g. 'host 10.0.0.5 port 80'")
+    pc.add_argument("--name")
+    pc.add_argument("--html", metavar="PATH")
+    pc.add_argument("--json", metavar="PATH")
+    pc.add_argument("--csv", metavar="PATH")
+    pc.add_argument("--fail-on", choices=list(PRIORITIES) + list(SEVERITIES[:4]))
+    pc.add_argument("--no-save", action="store_true")
+    pc.add_argument("-q", "--quiet", action="store_true")
+    pc.add_argument("-v", "--verbose", action="store_true")
+    pc.set_defaults(func=cmd_pcap)
+
+    cfg = sub.add_parser("config", help="personalise reports and dashboard (name, colour, theme, defaults)")
+    cfgs = cfg.add_subparsers(dest="config_cmd")
+    cfgs.add_parser("show", help="print current settings")
+    cset = cfgs.add_parser("set", help="change settings")
+    cset.add_argument("--org-name", dest="org_name", help="your organisation/team name, shown on reports")
+    cset.add_argument("--tagline", help="subtitle shown under the name")
+    cset.add_argument("--accent", help="accent colour: a hex value like #0d9488 or a preset name (blue, teal, ...)")
+    cset.add_argument("--theme", choices=["auto", "light", "dark"])
+    cset.add_argument("--analyst", help="your name, shown as 'prepared by' on reports")
+    cset.add_argument("--default-ports", dest="default_ports")
+    cset.add_argument("--default-ssh-user", dest="default_ssh_user")
+    cset.add_argument("--beginner-mode", choices=["on", "off"], help="expand plain-language explanations")
+    cset.add_argument("--show-glossary", choices=["on", "off"], help="include the help/glossary section")
+    cset.add_argument("--emoji", choices=["on", "off"])
+    cset.add_argument("--default-sudo", dest="default_sudo", choices=["on", "off"])
+    cfgs.add_parser("reset", help="restore default settings")
+    cfg.set_defaults(func=cmd_config)
+
+    ex = sub.add_parser("explain", help="plain-language explanation of a security term")
+    ex.add_argument("term", nargs="*", help="e.g. CVE, KEV, risk score, fix-now")
+    ex.set_defaults(func=cmd_explain)
     return p
 
 

@@ -115,8 +115,10 @@ def score(f: Finding, public: bool = False) -> float:
         risk += 12
         if public and (f.category == "network" or f.exposed):
             risk += 5
-    if f.kev:
-        risk += 25
+    # Exploit availability. Maturity already folds in KEV ("active"); fall back to
+    # the raw KEV flag if exploit intelligence has not run on these findings yet.
+    maturity = f.exploit_maturity or ("active" if f.kev else "")
+    risk += {"active": 25, "weaponized": 18, "poc": 7}.get(maturity, 0)
     if f.epss:
         risk += min(f.epss, 1.0) * 20
     if f.category == "package" and not f.fixed_version:
@@ -130,7 +132,7 @@ def score(f: Finding, public: bool = False) -> float:
 
 def bucket(f: Finding) -> str:
     actionable = f.category != "package" or bool(f.fixed_version)
-    if f.kev and actionable:
+    if (f.kev or f.exploit_maturity in ("active", "weaponized")) and actionable:
         return "fix-now"
     if f.risk >= 75:
         return "fix-now"

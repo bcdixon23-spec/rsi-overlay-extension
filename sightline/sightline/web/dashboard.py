@@ -27,6 +27,14 @@ input[type=text], select { width:100%; font:inherit; color:var(--ink); backgroun
 .check { display:flex; gap:8px; align-items:center; color:var(--ink); font-size:14px; margin-top:10px; }
 button { font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--ink); padding:8px 14px; cursor:pointer; }
 button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; margin-top:14px; }
+.theme { font-size:12px; padding:3px 10px; border-radius:999px; color:var(--muted); margin-left:8px; vertical-align:2px; }
+.hidden { display:none; }
+.swatches { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+.swatch { width:24px; height:24px; border-radius:6px; border:2px solid transparent; cursor:pointer; }
+.swatch.on { border-color:var(--ink); }
+.gloss { display:grid; grid-template-columns:150px 1fr; gap:6px 14px; font-size:13px; margin-top:8px; }
+.gloss dt { font-weight:600; color:var(--accent); } .gloss dd { margin:0; }
+.steps { font-size:13px; padding-left:20px; } .steps li { margin:3px 0; }
 details summary { cursor:pointer; color:var(--muted); font-size:13px; margin-top:12px; }
 .log { font-family:var(--mono); font-size:12px; background:var(--chip); border-radius:8px; padding:10px; max-height:220px; overflow:auto; white-space:pre-wrap; margin-top:8px; }
 .job { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; } .job:first-child { border:0; margin:0; padding:0; }
@@ -45,8 +53,34 @@ a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:under
 </head>
 <body>
 <div class="wrap">
-  <h1><span>Sightline</span> dashboard</h1>
-  <div class="muted">Agentless vulnerability and exposure scanning. Only scan systems you own or are authorized to test.</div>
+  <h1><span id="brandName">Sightline</span> dashboard
+    <button class="theme" id="settingsBtn" title="Personalise">&#9881; Settings</button>
+    <button class="theme" id="helpBtn" title="Beginner help">&#63; Help</button></h1>
+  <div class="muted" id="brandTagline">Agentless vulnerability and exposure scanning. Only scan systems you own or are authorized to test.</div>
+
+  <div class="panel hidden" id="settingsPanel" style="margin-top:16px">
+    <h2 style="margin-top:0">Make it yours</h2>
+    <div class="muted">These settings personalise your reports and this dashboard. They are saved on this machine.</div>
+    <div class="row">
+      <div><label for="s_org">Organisation / team name</label><input type="text" id="s_org" placeholder="Acme Security"></div>
+      <div><label for="s_analyst">Your name (shown as "prepared by")</label><input type="text" id="s_analyst"></div>
+    </div>
+    <label for="s_tagline">Tagline (report subtitle)</label><input type="text" id="s_tagline">
+    <label>Accent colour</label><div class="swatches" id="swatches"></div>
+    <input type="text" id="s_accent" placeholder="#3355dd" style="margin-top:8px;max-width:160px">
+    <div class="row">
+      <div><label for="s_theme">Theme</label><select id="s_theme"><option value="auto">Auto (match device)</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+      <div><label for="s_ports">Default ports</label><input type="text" id="s_ports" placeholder="default"></div>
+    </div>
+    <div class="check"><input type="checkbox" id="s_beginner"><label for="s_beginner" style="margin:0;color:inherit">Beginner mode: expand plain-language explanations in reports</label></div>
+    <button class="primary" id="saveSettings">Save settings</button>
+    <span class="muted" id="settingsMsg" style="margin-left:10px"></span>
+  </div>
+
+  <div class="panel hidden" id="helpPanel" style="margin-top:16px">
+    <h2 style="margin-top:0">New to this? Start here</h2>
+    <div id="helpBody" class="muted">Loading...</div>
+  </div>
   <div class="grid">
     <div>
       <h2>New scan</h2>
@@ -138,7 +172,48 @@ document.getElementById('scans').addEventListener('click', async e => {
   if (!confirm('Delete scan ' + id + '?')) return;
   await api('/api/scans/' + encodeURIComponent(id), {method: 'DELETE', headers: {'X-Sightline': '1'}}); loadScans();
 });
-loadScans(); loadDb(); tick().then(() => { if (!polling) polling = setInterval(tick, 1500); });
+// ---- personalisation ----
+const PRESETS = {blue:'#3355dd', indigo:'#4f46e5', violet:'#7c3aed', teal:'#0d9488', green:'#1f8a4c', amber:'#d97706', red:'#dc2626', slate:'#475569', cyan:'#0891b2', pink:'#db2777'};
+let settings = {};
+function applyBranding(s) {
+  settings = s || {};
+  if (s.accent) document.documentElement.style.setProperty('--accent', s.accent);
+  if (s.theme === 'light' || s.theme === 'dark') document.documentElement.dataset.theme = s.theme; else delete document.documentElement.dataset.theme;
+  document.getElementById('brandName').textContent = s.org_name || 'Sightline';
+  document.title = (s.org_name || 'Sightline') + ' dashboard';
+}
+async function loadSettings() { try { applyBranding(await api('/api/settings')); } catch (e) {} }
+function fillSettingsForm() {
+  const s = settings; const v = (id, val) => document.getElementById(id).value = val || '';
+  v('s_org', s.org_name); v('s_analyst', s.analyst); v('s_tagline', s.tagline); v('s_accent', s.accent); v('s_ports', s.default_ports);
+  document.getElementById('s_theme').value = s.theme || 'auto';
+  document.getElementById('s_beginner').checked = s.beginner_mode !== false;
+  const sw = document.getElementById('swatches');
+  sw.innerHTML = Object.entries(PRESETS).map(([k,hex]) => `<div class="swatch${(s.accent||'').toLowerCase()===hex?' on':''}" title="${k}" data-hex="${hex}" style="background:${hex}"></div>`).join('');
+  sw.querySelectorAll('.swatch').forEach(el => el.onclick = () => { document.getElementById('s_accent').value = el.dataset.hex; document.documentElement.style.setProperty('--accent', el.dataset.hex); sw.querySelectorAll('.swatch').forEach(x=>x.classList.remove('on')); el.classList.add('on'); });
+}
+document.getElementById('settingsBtn').onclick = () => { const p = document.getElementById('settingsPanel'); p.classList.toggle('hidden'); if (!p.classList.contains('hidden')) fillSettingsForm(); };
+document.getElementById('helpBtn').onclick = async () => {
+  const p = document.getElementById('helpPanel'); p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden') && !p.dataset.loaded) {
+    try { const H = await api('/api/help');
+      const steps = (H.getting_started||[]).map(s=>`<li>${esc(s)}</li>`).join('');
+      const terms = Object.entries(H.glossary||{}).map(([k,val])=>`<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('');
+      document.getElementById('helpBody').innerHTML = `<ol class="steps">${steps}</ol><h2 style="font-size:14px">Security terms</h2><dl class="gloss">${terms}</dl>`;
+      p.dataset.loaded = '1';
+    } catch(e) {}
+  }
+};
+document.getElementById('s_accent').addEventListener('input', e => { if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(e.target.value)) document.documentElement.style.setProperty('--accent', e.target.value); });
+document.getElementById('saveSettings').onclick = async () => {
+  const g = id => document.getElementById(id);
+  const body = { org_name:g('s_org').value, analyst:g('s_analyst').value, tagline:g('s_tagline').value, accent:g('s_accent').value || '#3355dd',
+    theme:g('s_theme').value, default_ports:g('s_ports').value || 'default', beginner_mode:g('s_beginner').checked };
+  try { applyBranding(await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json','X-Sightline':'1'}, body:JSON.stringify(body)}));
+    g('settingsMsg').textContent = 'Saved.'; setTimeout(()=>g('settingsMsg').textContent='', 2000);
+  } catch(e) { g('settingsMsg').textContent = 'Error: ' + e; }
+};
+loadSettings(); loadScans(); loadDb(); tick().then(() => { if (!polling) polling = setInterval(tick, 1500); });
 </script>
 </body>
 </html>

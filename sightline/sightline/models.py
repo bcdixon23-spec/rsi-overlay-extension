@@ -80,6 +80,8 @@ class Finding:
     cvss: float | None = None
     epss: float | None = None
     kev: bool = False
+    exploit_maturity: str = ""   # active | weaponized | poc | unproven
+    exploit_refs: list[str] = field(default_factory=list)
     exposed: bool = False
     risk: float = 0.0
     priority: str = ""
@@ -151,6 +153,7 @@ class ScanResult:
     previous_scan_id: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
     vulndb: dict[str, Any] = field(default_factory=dict)
+    capture: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         counts = {s: 0 for s in SEVERITIES}
@@ -180,6 +183,7 @@ class ScanResult:
             "previous_scan_id": self.previous_scan_id,
             "options": self.options,
             "vulndb": self.vulndb,
+            "capture": self.capture,
             "summary": self.summary(),
             "hosts": [h.to_dict() for h in self.hosts],
             "findings": [f.to_dict() for f in self.findings],
@@ -197,6 +201,7 @@ class ScanResult:
             previous_scan_id=data.get("previous_scan_id"),
             options=data.get("options", {}),
             vulndb=data.get("vulndb", {}),
+            capture=data.get("capture", {}),
             hosts=[HostResult.from_dict(h) for h in data.get("hosts", [])],
             findings=[Finding.from_dict(f) for f in data.get("findings", [])],
             fixed=[Finding.from_dict(f) for f in data.get("fixed", [])],

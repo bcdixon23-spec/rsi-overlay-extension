@@ -23,9 +23,12 @@ from urllib.parse import parse_qs, urlparse
 
 from sightline import __version__
 from sightline.config import scans_path, vulndb_path
+from sightline.knowledge import help_payload
 from sightline.netscan import parse_ports
 from sightline.report.html import render_html
 from sightline.scanner import ScanOptions, run_scan
+from sightline.settings import load as settings_load
+from sightline.settings import update as settings_update
 from sightline.storage import ScanStore
 from sightline.vulndb.store import VulnDB
 from sightline.web.dashboard import DASHBOARD_HTML
@@ -180,7 +183,11 @@ class Handler(BaseHTTPRequestHandler):
                 store.close()
             if not result:
                 return self._send(404, "Scan not found", "text/plain")
-            return self._send(200, render_html(result), "text/html", extra)
+            return self._send(200, render_html(result, settings_load()), "text/html", extra)
+        if parts == ["api", "settings"]:
+            return self._json(200, settings_load().to_dict())
+        if parts == ["api", "help"]:
+            return self._json(200, help_payload())
         if parts == ["api", "jobs"]:
             with JOBS_LOCK:
                 jobs = sorted(JOBS.values(), key=lambda j: j["started"], reverse=True)[:20]
@@ -204,18 +211,29 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _read_json(self) -> dict:
+        if "application/json" not in (self.headers.get("Content-Type") or ""):
+            raise ValueError("JSON body required")
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 65536:
+            raise ValueError("request too large")
+        return json.loads(self.rfile.read(length) or b"{}")
+
     def do_POST(self):  # noqa: N802
         if not self._mutation_allowed():
             return
-        if urlparse(self.path).path.rstrip("/") != "/api/scans":
+        path = urlparse(self.path).path.rstrip("/")
+        if path == "/api/settings":
+            try:
+                payload = self._read_json()
+                settings = settings_update(**{k: v for k, v in payload.items()})
+            except (ValueError, TypeError) as exc:
+                return self._json(400, {"error": str(exc)})
+            return self._json(200, settings.to_dict())
+        if path != "/api/scans":
             return self._json(404, {"error": "not found"})
-        if "application/json" not in (self.headers.get("Content-Type") or ""):
-            return self._json(415, {"error": "JSON body required"})
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > 65536:
-            return self._json(413, {"error": "request too large"})
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            payload = self._read_json()
             job_id = _start_job(payload)
         except (ValueError, TypeError) as exc:
             return self._json(400, {"error": str(exc)})

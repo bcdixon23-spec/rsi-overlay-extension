@@ -6,6 +6,7 @@ import html
 import json
 
 from sightline import __version__
+from sightline.knowledge import help_payload
 from sightline.models import ScanResult
 from sightline.report.common import patch_plan
 
@@ -31,22 +32,44 @@ def _plan_data(result: ScanResult) -> list[dict]:
     ]
 
 
-def render_html(result: ScanResult) -> str:
+def render_html(result: ScanResult, settings=None) -> str:
+    from sightline.settings import Settings
+
+    settings = settings or Settings()
     payload = result.to_dict()
     payload["plan"] = _plan_data(result)
     payload["generator"] = f"Sightline {__version__}"
+    payload["help"] = help_payload()
+    payload["brand"] = {
+        "org": settings.org_name,
+        "tagline": settings.tagline,
+        "accent": settings.accent,
+        "theme": settings.theme,
+        "analyst": settings.analyst,
+        "show_glossary": settings.show_glossary,
+        "beginner": settings.beginner_mode,
+    }
     data = json.dumps(payload).replace("</", "<\\/")
-    title = html.escape(f"Sightline report - {result.name or result.scan_id}")
-    return TEMPLATE.replace("__TITLE__", title).replace("__DATA__", data)
+    org = html.escape(settings.org_name or "Sightline")
+    title = html.escape(f"{settings.org_name} report - {result.name or result.scan_id}")
+    accent = settings.accent if settings.accent.startswith("#") else "#3355dd"
+    theme_attr = f' data-theme="{settings.theme}"' if settings.theme in ("light", "dark") else ""
+    return (
+        TEMPLATE.replace("__TITLE__", title)
+        .replace("__ACCENT__", accent)
+        .replace("__THEMEATTR__", theme_attr)
+        .replace("__DATA__", data)
+    )
 
 
 TEMPLATE = r"""<!doctype html>
-<html lang="en">
+<html lang="en"__THEMEATTR__>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
+:root { --brand-accent: __ACCENT__; }
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --ink: #14171c; --muted: #5d6673; --line: #e3e6eb;
   --accent: #3355dd; --chip: #eef1f5;
@@ -141,6 +164,24 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
 .theme { font: inherit; font-size: 12px; background: transparent; color: var(--muted); border: 1px solid var(--line);
   border-radius: 999px; padding: 3px 10px; cursor: pointer; }
 @media (max-width: 640px) { .kv { grid-template-columns: 1fr; } td.title { min-width: 200px; } }
+/* user-chosen accent wins in every theme */
+:root, :root:not([data-theme="light"]), :root[data-theme="dark"] { --accent: var(--brand-accent) !important; }
+.badge.mat-active { background: var(--crit); color: #fff; }
+.badge.mat-weaponized { color: var(--high); border: 1px solid currentColor; background: transparent; }
+.badge.mat-poc { color: var(--muted); border: 1px solid var(--line); background: transparent; }
+details.help { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 16px; margin-top: 12px; }
+details.help summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
+details.help h3 { font-size: 14px; margin: 16px 0 6px; }
+.gloss { display: grid; grid-template-columns: 160px 1fr; gap: 6px 16px; font-size: 13px; }
+.gloss dt { font-weight: 600; color: var(--accent); }
+.gloss dd { margin: 0; color: var(--ink); }
+.steps { margin: 6px 0 12px; padding-left: 20px; font-size: 13px; }
+.steps li { margin: 3px 0; }
+.traffic { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.traffic .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.traffic h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.traffic table { font-size: 13px; } .traffic td { padding: 3px 6px; border: 0; }
+@media (max-width: 640px) { .kv { grid-template-columns: 1fr; } td.title { min-width: 200px; } .gloss { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -161,15 +202,26 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
   const hostName = {}; D.hosts.forEach(h => hostName[h.address] = h.hostname);
   const cveLink = c => `<a href="https://nvd.nist.gov/vuln/detail/${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`;
   const where = f => esc(f.host) + (f.port ? ':' + f.port : '');
-  const flags = f => (f.kev ? ' <span class="badge kev" title="CISA Known Exploited Vulnerability">KEV</span>' : '') +
+  const human = n => { const u = ['B','KB','MB','GB','TB']; let i = 0; n = +n || 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + u[i]; };
+  const MAT = (D.help && D.help.maturity) || {};
+  const matBadge = f => {
+    if (f.kev) return ' <span class="badge kev" title="On CISA\'s Known Exploited Vulnerabilities list">KEV</span>';
+    if (f.exploit_maturity === 'active') return ' <span class="badge mat-active" title="' + esc(MAT.active || '') + '">exploited</span>';
+    if (f.exploit_maturity === 'weaponized') return ' <span class="badge mat-weaponized" title="' + esc(MAT.weaponized || '') + '">exploit ready</span>';
+    if (f.exploit_maturity === 'poc') return ' <span class="badge mat-poc" title="' + esc(MAT.poc || '') + '">PoC</span>';
+    return '';
+  };
+  const flags = f => matBadge(f) +
     (hasPrev && f.status === 'new' ? ' <span class="badge new">NEW</span>' : '') +
     (f.confidence && f.confidence !== 'confirmed' ? ` <span class="badge" title="detection confidence">${esc(f.confidence)}</span>` : '');
+  const brand = D.brand || {org: 'Sightline'};
 
   const pc = {}; PRIO.forEach(p => pc[p] = F.filter(f => f.priority === p).length);
-  let h = `<header><h1><span class="brand">Sightline</span> &nbsp;${esc(D.name || D.scan_id)}</h1>
-    <div class="meta">${esc(fmtDate(D.started))}${dur() ? ' &middot; ' + dur() : ''} &middot; scan ${esc(D.scan_id)}
+  const isCapture = (D.options && D.options.mode === 'passive capture');
+  let h = `<header><h1><span class="brand">${esc(brand.org || 'Sightline')}</span> &nbsp;${esc(D.name || D.scan_id)}</h1>
+    <div class="meta">${esc(fmtDate(D.started))}${dur() ? ' &middot; ' + dur() : ''} &middot; ${isCapture ? 'capture' : 'scan'} ${esc(D.scan_id)}
     &nbsp;<button class="theme" id="theme">Theme</button></div></header>
-    <div class="meta">Targets: ${D.targets.map(esc).join(', ')}</div>
+    <div class="meta">${brand.tagline ? esc(brand.tagline) + ' &middot; ' : ''}${isCapture ? 'Source' : 'Targets'}: ${D.targets.map(esc).join(', ')}${brand.analyst ? ' &middot; prepared by ' + esc(brand.analyst) : ''}</div>
     <div class="tiles">
       <div class="tile"><div class="n">${S.hosts_alive}<span class="meta" style="font-size:14px;font-weight:500"> / ${S.hosts_scanned}</span></div><div class="l">Hosts up</div></div>
       <div class="tile"><div class="n">${S.hosts_credentialed}</div><div class="l">Credentialed</div></div>
@@ -202,8 +254,21 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
       <pre class="cmd">${esc(p.command)}</pre></div>`).join('') + '</div>';
   }
 
+  if (isCapture && D.capture) {
+    const cap = D.capture;
+    const row = (arr, fmt) => arr.length ? '<table>' + arr.map(fmt).join('') + '</table>' : '<div class="meta">none</div>';
+    h += `<h2>Traffic <span class="count">${cap.frames} frames &middot; ${human(cap.bytes)} &middot; ${cap.duration}s</span></h2>
+      <div class="traffic">
+        <div class="box"><h3>Protocols</h3>${row(Object.entries(cap.protocols || {}), e => `<tr><td>${esc(e[0])}</td><td>${human(e[1])}</td></tr>`)}</div>
+        <div class="box"><h3>Top talkers</h3>${row((cap.top_talkers||[]).slice(0,8), t => `<tr><td class="mono">${esc(t.host)}</td><td>${esc(t.name||'')}</td><td>${human(t.bytes)}</td></tr>`)}</div>
+        <div class="box"><h3>TLS server names</h3>${row((cap.tls_sni||[]).slice(0,8), s => `<tr><td>${esc(s[0])}</td><td>x${s[1]}</td></tr>`)}</div>
+        <div class="box"><h3>DNS lookups</h3>${row((cap.dns_queries||[]).slice(0,8), d => `<tr><td>${esc(d[0])}</td><td>x${d[1]}</td></tr>`)}</div>
+      </div>`;
+  }
+
   const hosts = [...new Set(F.map(f => f.host))];
-  h += `<h2>All findings <span class="count" id="fcount"></span></h2>
+  h += `<h2>${isCapture ? 'Findings' : 'All findings'} <span class="count" id="fcount"></span></h2>`;
+  h += `
     <div class="panel"><div class="filters">
       <input type="search" id="q" placeholder="Search title, CVE, package, host...">
       <select id="fp"><option value="">All priorities</option>${PRIO.map(p => `<option value="${p}">${PL[p]}</option>`).join('')}</select>
@@ -236,8 +301,21 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
     h += `<h2>Fixed since last scan <span class="count">${D.fixed.length}</span></h2><div class="panel"><div class="tbl-wrap"><table><tbody>` +
       D.fixed.map(f => `<tr><td><span class="badge ok">fixed</span></td><td>${where(f)}</td><td>${esc(f.title)}</td></tr>`).join('') + '</tbody></table></div></div>';
   }
+  if (D.help && brand.show_glossary !== false) {
+    const H = D.help;
+    const gs = (H.getting_started || []).map(s => `<li>${esc(s)}</li>`).join('');
+    const gloss = Object.entries(H.glossary || {}).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+    const prio = Object.entries(H.priority || {}).map(([k, v]) => `<dt>${esc(PL[k] || k)}</dt><dd>${esc(v)}</dd>`).join('');
+    const open = brand.beginner ? ' open' : '';
+    h += `<h2>Help &amp; glossary</h2>
+      <details class="help"${open}><summary>New to this? Start here</summary>
+        <h3>How to work through this report</h3><ol class="steps">${gs}</ol>
+        <h3>What the priorities mean</h3><dl class="gloss">${prio}</dl>
+        <h3>Security terms in plain English</h3><dl class="gloss">${gloss}</dl>
+      </details>`;
+  }
   const vdb = D.vulndb || {};
-  h += `<footer>Generated by ${esc(D.generator)}. Vulnerability data: OSV.dev distro advisories${vdb.osv_updated ? ' (updated ' + esc(fmtDate(vdb.osv_updated)) + ')' : ''},
+  h += `<footer>Generated by ${esc(D.generator)}${brand.org && brand.org !== 'Sightline' ? ' for ' + esc(brand.org) : ''}. Vulnerability data: OSV.dev distro advisories${vdb.osv_updated ? ' (updated ' + esc(fmtDate(vdb.osv_updated)) + ')' : ''},
     CISA KEV${vdb.kev_updated ? ' (' + esc(fmtDate(vdb.kev_updated)) + ')' : ''}, FIRST EPSS${vdb.epss_updated ? ' (' + esc(fmtDate(vdb.epss_updated)) + ')' : ''}.
     Risk combines severity, exploitation (KEV/EPSS), network exposure and fix availability.</footer>`;
   document.getElementById('app').innerHTML = h;
@@ -271,6 +349,7 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
       f.package ? ['Package', `${esc((f.binaries || []).join(', ') || f.package)} <span class="mono">${esc(f.installed_version || '')}</span>`] : null,
       f.fixed_version ? ['Fixed in', `<span class="mono">${esc(f.fixed_version)}</span>`] : (f.category === 'package' ? ['Fixed in', 'No fix released yet'] : null),
       f.cves && f.cves.length ? ['CVEs', f.cves.slice(0, 30).map(cveLink).join(', ') + (f.cves.length > 30 ? ' ...' : '')] : null,
+      f.exploit_maturity ? ['Exploit status', esc((MAT[f.exploit_maturity] ? MAT[f.exploit_maturity] : f.exploit_maturity))] : null,
       ['Scoring', `risk ${f.risk} &middot; ${esc(f.severity)}${f.cvss != null ? ' &middot; CVSS ' + f.cvss : ''}${f.epss != null ? ' &middot; EPSS ' + (f.epss * 100).toFixed(1) + '%' : ''}${f.kev ? ' &middot; in CISA KEV' : ''}${f.exposed ? ' &middot; network-exposed' : ''}`],
       f.evidence ? ['Evidence', esc(f.evidence)] : null,
       f.description ? ['Details', esc(f.description).replace(/\n/g, '<br>')] : null,
