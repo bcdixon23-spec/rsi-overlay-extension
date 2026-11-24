@@ -1,0 +1,84 @@
+
+@@SL:os-release@@
+PRETTY_NAME="Ubuntu 22.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION_CODENAME=jammy
+ID=ubuntu
+ID_LIKE=debian
+UBUNTU_CODENAME=jammy
+
+@@SL:uname@@
+Linux 5.15.0-91-generic x86_64
+
+@@SL:hostname@@
+web01
+
+@@SL:uid@@
+0
+
+@@SL:dpkg@@
+ii 	openssl	3.0.2-0ubuntu1.12	openssl	3.0.2-0ubuntu1.12	amd64
+ii 	libssl3:amd64	3.0.2-0ubuntu1.12	openssl	3.0.2-0ubuntu1.12	amd64
+ii 	openssh-server	1:8.9p1-3ubuntu0.6	openssh	1:8.9p1-3ubuntu0.6	amd64
+ii 	openssh-client	1:8.9p1-3ubuntu0.6	openssh	1:8.9p1-3ubuntu0.6	amd64
+ii 	curl	7.81.0-1ubuntu1.15	curl	7.81.0-1ubuntu1.15	amd64
+ii 	tar	1.34+dfsg-1ubuntu0.1.22.04.2	tar	1.34+dfsg-1ubuntu0.1.22.04.2	amd64
+ii 	git	1:2.34.1-1ubuntu1.10	git	1:2.34.1-1ubuntu1.10	amd64
+ii 	redis-server	5:6.0.16-1ubuntu1	redis	5:6.0.16-1ubuntu1	amd64
+rc 	oldpkg	1.0-1	oldpkg	1.0-1	amd64
+
+@@SL:rpm@@
+
+@@SL:apk@@
+
+@@SL:kernels@@
+5.15.0-91-generic
+5.15.0-97-generic
+
+@@SL:reboot-required@@
+flag=yes
+pkg=linux-image-5.15.0-97-generic
+
+@@SL:sshd@@
+port 22
+permitrootlogin yes
+passwordauthentication yes
+permitemptypasswords no
+
+@@SL:listening@@
+tcp   LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=812,fd=3))
+tcp   LISTEN 0      511          0.0.0.0:6379       0.0.0.0:*    users:(("redis-server",pid=901,fd=6))
+tcp   LISTEN 0      4096       127.0.0.53%lo:53     0.0.0.0:*    users:(("systemd-resolve",pid=600,fd=14))
+udp   UNCONN 0      0          127.0.0.53%lo:53     0.0.0.0:*    users:(("systemd-resolve",pid=600,fd=13))
+
+@@SL:uid0@@
+root
+toor
+
+@@SL:file-perms@@
+644 root /etc/passwd
+644 root /etc/shadow
+440 root /etc/sudoers
+
+@@SL:empty-passwords@@
+guest
+
+@@SL:sudoers@@
+deploy ALL=(ALL) NOPASSWD: ALL
+
+@@SL:auto-updates@@
+unit=unattended-upgrades.service disabled
+
+@@SL:firewall@@
+ufw=Status: inactive
+nft_rules=0
+iptables_rules=0
+
+@@SL:sysctl@@
+kernel/randomize_va_space=0
+
+@@SL:uptime@@
+1000.0 2000.0
+
+@@SL:end@@

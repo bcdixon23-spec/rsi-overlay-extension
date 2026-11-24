@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sightline-scanner"
+version = "0.1.0"
+description = "Agentless vulnerability and exposure scanner for Linux servers and networks"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+sightline = "sightline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sightline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
